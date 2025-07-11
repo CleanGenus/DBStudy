@@ -41,8 +41,8 @@ namespace DBOptimizationStudy.Services
             var stopwatch = Stopwatch.StartNew();
 
             var departmentFaker = new Faker<Department>()
-                .RuleFor(d => d.Name, f => f.Commerce.Department())
-                .RuleFor(d => d.Description, f => f.Lorem.Sentence())
+                .RuleFor(d => d.Name, f => TruncateString(f.Commerce.Department(), 90))
+                .RuleFor(d => d.Description, f => TruncateString(f.Lorem.Sentence(), 450))
                 .RuleFor(d => d.CreatedDate, f => f.Date.Past(2))
                 .RuleFor(d => d.IsActive, f => f.Random.Bool(0.9f));
 
@@ -53,17 +53,37 @@ namespace DBOptimizationStudy.Services
 
             foreach (var department in departments)
             {
-                var query = @"
-                    INSERT INTO Departments (Name, Description, CreatedDate, IsActive)
-                    VALUES (@Name, @Description, @CreatedDate, @IsActive)";
+                try
+                {
+                    var query = @"
+                        INSERT INTO Departments (Name, Description, CreatedDate, IsActive)
+                        VALUES (@Name, @Description, @CreatedDate, @IsActive)";
 
-                using var command = new SqlCommand(query, connection);
-                command.Parameters.AddWithValue("@Name", department.Name);
-                command.Parameters.AddWithValue("@Description", department.Description);
-                command.Parameters.AddWithValue("@CreatedDate", department.CreatedDate);
-                command.Parameters.AddWithValue("@IsActive", department.IsActive);
+                    using var command = new SqlCommand(query, connection);
+                    command.Parameters.AddWithValue("@Name", TruncateString(department.Name, 100));
+                    command.Parameters.AddWithValue("@Description", TruncateString(department.Description, 500));
+                    command.Parameters.AddWithValue("@CreatedDate", department.CreatedDate);
+                    command.Parameters.AddWithValue("@IsActive", department.IsActive);
 
-                await command.ExecuteNonQueryAsync();
+                    await command.ExecuteNonQueryAsync();
+                }
+                catch (SqlException ex)
+                {
+                    _logger.LogError(ex, $"插入部门数据失败: Name={department.Name}");
+                    
+                    if (ex.Number == 8152)
+                    {
+                        _logger.LogError("部门数据截断错误");
+                        _logger.LogError($"部门数据: Name长度={department.Name?.Length}, Description长度={department.Description?.Length}");
+                    }
+                    
+                    continue;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"插入部门数据时发生未知错误: {department.Name}");
+                    continue;
+                }
             }
 
             stopwatch.Stop();
@@ -86,21 +106,28 @@ namespace DBOptimizationStudy.Services
             }
 
             var userFaker = new Faker<User>()
-                .RuleFor(u => u.FirstName, f => f.Name.FirstName())
-                .RuleFor(u => u.LastName, f => f.Name.LastName())
-                .RuleFor(u => u.Email, (f, u) => f.Internet.Email(u.FirstName, u.LastName))
-                .RuleFor(u => u.PhoneNumber, f => f.Phone.PhoneNumber())
+                .RuleFor(u => u.FirstName, f => TruncateString(f.Name.FirstName(), 90)) // 留有缓冲
+                .RuleFor(u => u.LastName, f => TruncateString(f.Name.LastName(), 90))
+                .RuleFor(u => u.Email, f => 
+                {
+                    // 生成更短的邮箱地址，避免过长
+                    var firstName = TruncateString(f.Name.FirstName(), 15);
+                    var lastName = TruncateString(f.Name.LastName(), 15);
+                    var domain = f.PickRandom(new[] { "gmail.com", "outlook.com", "yahoo.com", "example.com" });
+                    return $"{firstName.ToLower()}.{lastName.ToLower()}@{domain}";
+                })
+                .RuleFor(u => u.PhoneNumber, f => f.Phone.PhoneNumber("###-###-####"))
                 .RuleFor(u => u.DateOfBirth, f => f.Date.Between(DateTime.Now.AddYears(-65), DateTime.Now.AddYears(-18)))
                 .RuleFor(u => u.CreatedDate, f => f.Date.Past(2))
                 .RuleFor(u => u.LastLoginDate, f => f.Random.Bool(0.7f) ? f.Date.Recent(30) : null)
-                .RuleFor(u => u.City, f => f.Address.City())
-                .RuleFor(u => u.State, f => f.Address.State())
-                .RuleFor(u => u.Country, f => f.Address.Country())
-                .RuleFor(u => u.ZipCode, f => f.Address.ZipCode())
-                .RuleFor(u => u.Salary, f => f.Random.Decimal(30000, 200000))
+                .RuleFor(u => u.City, f => TruncateString(f.Address.City(), 90))
+                .RuleFor(u => u.State, f => TruncateString(f.Address.State(), 90))
+                .RuleFor(u => u.Country, f => TruncateString(f.Address.Country(), 90))
+                .RuleFor(u => u.ZipCode, f => TruncateString(f.Address.ZipCode(), 15))
+                .RuleFor(u => u.Salary, f => Math.Round(f.Random.Decimal(30000, 200000), 2))
                 .RuleFor(u => u.DepartmentId, f => f.PickRandom(departmentIds))
                 .RuleFor(u => u.IsActive, f => f.Random.Bool(0.85f))
-                .RuleFor(u => u.Notes, f => f.Lorem.Paragraph());
+                .RuleFor(u => u.Notes, f => TruncateString(f.Lorem.Sentences(2), 3000));
 
             using var connection = new SqlConnection(_databaseService.ConnectionString);
             await connection.OpenAsync();
@@ -142,12 +169,12 @@ namespace DBOptimizationStudy.Services
             var orderFaker = new Faker<Order>()
                 .RuleFor(o => o.UserId, f => f.PickRandom(userIds))
                 .RuleFor(o => o.OrderDate, f => f.Date.Past(1))
-                .RuleFor(o => o.TotalAmount, f => f.Random.Decimal(10, 5000))
+                .RuleFor(o => o.TotalAmount, f => Math.Round(f.Random.Decimal(10, 5000), 2))
                 .RuleFor(o => o.Status, f => f.PickRandom(orderStatuses))
-                .RuleFor(o => o.ShippingAddress, f => f.Address.FullAddress())
+                .RuleFor(o => o.ShippingAddress, f => TruncateString(f.Address.FullAddress(), 950)) // 留有缓冲
                 .RuleFor(o => o.ShippedDate, (f, o) => o.Status == "Shipped" || o.Status == "Delivered" ? f.Date.Between(o.OrderDate, DateTime.Now) : null)
                 .RuleFor(o => o.DeliveredDate, (f, o) => o.Status == "Delivered" && o.ShippedDate.HasValue ? f.Date.Between(o.ShippedDate.Value, DateTime.Now) : null)
-                .RuleFor(o => o.Notes, f => f.Lorem.Sentence());
+                .RuleFor(o => o.Notes, f => TruncateString(f.Lorem.Sentences(1), 3000));
 
             using var connection = new SqlConnection(_databaseService.ConnectionString);
             await connection.OpenAsync();
@@ -181,7 +208,7 @@ namespace DBOptimizationStudy.Services
 
             while (await reader.ReadAsync())
             {
-                ids.Add(reader.GetInt32("Id"));
+                ids.Add(reader.GetInt32(0));
             }
 
             return ids;
@@ -199,7 +226,7 @@ namespace DBOptimizationStudy.Services
 
             while (await reader.ReadAsync())
             {
-                ids.Add(reader.GetInt32("Id"));
+                ids.Add(reader.GetInt32(0));
             }
 
             return ids;
@@ -215,24 +242,48 @@ namespace DBOptimizationStudy.Services
 
             foreach (var user in users)
             {
-                using var command = new SqlCommand(query, connection);
-                command.Parameters.AddWithValue("@FirstName", user.FirstName);
-                command.Parameters.AddWithValue("@LastName", user.LastName);
-                command.Parameters.AddWithValue("@Email", user.Email);
-                command.Parameters.AddWithValue("@PhoneNumber", user.PhoneNumber);
-                command.Parameters.AddWithValue("@DateOfBirth", user.DateOfBirth);
-                command.Parameters.AddWithValue("@CreatedDate", user.CreatedDate);
-                command.Parameters.AddWithValue("@LastLoginDate", (object?)user.LastLoginDate ?? DBNull.Value);
-                command.Parameters.AddWithValue("@City", user.City);
-                command.Parameters.AddWithValue("@State", user.State);
-                command.Parameters.AddWithValue("@Country", user.Country);
-                command.Parameters.AddWithValue("@ZipCode", user.ZipCode);
-                command.Parameters.AddWithValue("@Salary", user.Salary);
-                command.Parameters.AddWithValue("@DepartmentId", user.DepartmentId);
-                command.Parameters.AddWithValue("@IsActive", user.IsActive);
-                command.Parameters.AddWithValue("@Notes", user.Notes);
+                try
+                {
+                    using var command = new SqlCommand(query, connection);
+                    
+                    // 数据验证和截断处理
+                    command.Parameters.AddWithValue("@FirstName", TruncateString(user.FirstName, 100));
+                    command.Parameters.AddWithValue("@LastName", TruncateString(user.LastName, 100));
+                    command.Parameters.AddWithValue("@Email", TruncateString(user.Email, 255));
+                    command.Parameters.AddWithValue("@PhoneNumber", TruncateString(user.PhoneNumber, 50));
+                    command.Parameters.AddWithValue("@DateOfBirth", user.DateOfBirth);
+                    command.Parameters.AddWithValue("@CreatedDate", user.CreatedDate);
+                    command.Parameters.AddWithValue("@LastLoginDate", (object?)user.LastLoginDate ?? DBNull.Value);
+                    command.Parameters.AddWithValue("@City", TruncateString(user.City, 100));
+                    command.Parameters.AddWithValue("@State", TruncateString(user.State, 100));
+                    command.Parameters.AddWithValue("@Country", TruncateString(user.Country, 100));
+                    command.Parameters.AddWithValue("@ZipCode", TruncateString(user.ZipCode, 20));
+                    command.Parameters.AddWithValue("@Salary", user.Salary);
+                    command.Parameters.AddWithValue("@DepartmentId", user.DepartmentId);
+                    command.Parameters.AddWithValue("@IsActive", user.IsActive);
+                    command.Parameters.AddWithValue("@Notes", TruncateString(user.Notes, 4000)); // 限制Notes长度
 
-                await command.ExecuteNonQueryAsync();
+                    await command.ExecuteNonQueryAsync();
+                }
+                catch (SqlException ex)
+                {
+                    _logger.LogError(ex, $"插入用户数据失败: FirstName={user.FirstName}, LastName={user.LastName}, Email={user.Email}");
+                    
+                    // 记录详细的错误信息
+                    if (ex.Number == 8152) // String or binary data would be truncated
+                    {
+                        _logger.LogError("数据截断错误 - 字段长度超出限制");
+                        _logger.LogError($"用户数据: FirstName长度={user.FirstName?.Length}, LastName长度={user.LastName?.Length}, Email长度={user.Email?.Length}");
+                    }
+                    
+                    // 继续处理其他记录，不中断整个批次
+                    continue;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"插入用户数据时发生未知错误: {user.Email}");
+                    continue;
+                }
             }
         }
 
@@ -244,18 +295,49 @@ namespace DBOptimizationStudy.Services
 
             foreach (var order in orders)
             {
-                using var command = new SqlCommand(query, connection);
-                command.Parameters.AddWithValue("@UserId", order.UserId);
-                command.Parameters.AddWithValue("@OrderDate", order.OrderDate);
-                command.Parameters.AddWithValue("@TotalAmount", order.TotalAmount);
-                command.Parameters.AddWithValue("@Status", order.Status);
-                command.Parameters.AddWithValue("@ShippingAddress", order.ShippingAddress);
-                command.Parameters.AddWithValue("@ShippedDate", (object?)order.ShippedDate ?? DBNull.Value);
-                command.Parameters.AddWithValue("@DeliveredDate", (object?)order.DeliveredDate ?? DBNull.Value);
-                command.Parameters.AddWithValue("@Notes", order.Notes);
+                try
+                {
+                    using var command = new SqlCommand(query, connection);
+                    command.Parameters.AddWithValue("@UserId", order.UserId);
+                    command.Parameters.AddWithValue("@OrderDate", order.OrderDate);
+                    command.Parameters.AddWithValue("@TotalAmount", order.TotalAmount);
+                    command.Parameters.AddWithValue("@Status", TruncateString(order.Status, 50));
+                    command.Parameters.AddWithValue("@ShippingAddress", TruncateString(order.ShippingAddress, 1000));
+                    command.Parameters.AddWithValue("@ShippedDate", (object?)order.ShippedDate ?? DBNull.Value);
+                    command.Parameters.AddWithValue("@DeliveredDate", (object?)order.DeliveredDate ?? DBNull.Value);
+                    command.Parameters.AddWithValue("@Notes", TruncateString(order.Notes, 4000));
 
-                await command.ExecuteNonQueryAsync();
+                    await command.ExecuteNonQueryAsync();
+                }
+                catch (SqlException ex)
+                {
+                    _logger.LogError(ex, $"插入订单数据失败: OrderId={order.Id}, UserId={order.UserId}");
+                    
+                    if (ex.Number == 8152)
+                    {
+                        _logger.LogError("订单数据截断错误");
+                        _logger.LogError($"订单数据: Status长度={order.Status?.Length}, Address长度={order.ShippingAddress?.Length}");
+                    }
+                    
+                    continue;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"插入订单数据时发生未知错误: OrderId={order.Id}");
+                    continue;
+                }
             }
+        }
+
+        /// <summary>
+        /// 截断字符串以适应数据库字段长度限制
+        /// </summary>
+        private string TruncateString(string input, int maxLength)
+        {
+            if (string.IsNullOrEmpty(input))
+                return input ?? string.Empty;
+            
+            return input.Length <= maxLength ? input : input.Substring(0, maxLength);
         }
     }
 }

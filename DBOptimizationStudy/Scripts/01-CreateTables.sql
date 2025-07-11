@@ -21,17 +21,17 @@ CREATE TABLE Departments (
 -- 创建用户表
 CREATE TABLE Users (
     Id INT IDENTITY(1,1) PRIMARY KEY,
-    FirstName NVARCHAR(50) NOT NULL,
-    LastName NVARCHAR(50) NOT NULL,
-    Email NVARCHAR(100) NOT NULL,
-    PhoneNumber NVARCHAR(20),
+    FirstName NVARCHAR(100) NOT NULL,        -- 增加长度
+    LastName NVARCHAR(100) NOT NULL,         -- 增加长度
+    Email NVARCHAR(255) NOT NULL,            -- 增加长度以支持长邮箱
+    PhoneNumber NVARCHAR(50),                -- 增加长度以支持国际号码
     DateOfBirth DATE NOT NULL,
     CreatedDate DATETIME2 NOT NULL DEFAULT GETDATE(),
     LastLoginDate DATETIME2 NULL,
-    City NVARCHAR(50),
-    State NVARCHAR(50),
-    Country NVARCHAR(50),
-    ZipCode NVARCHAR(10),
+    City NVARCHAR(100),                      -- 增加长度
+    State NVARCHAR(100),                     -- 增加长度
+    Country NVARCHAR(100),                   -- 增加长度
+    ZipCode NVARCHAR(20),                    -- 增加长度
     Salary DECIMAL(18,2) NOT NULL,
     DepartmentId INT NOT NULL,
     IsActive BIT NOT NULL DEFAULT 1,
@@ -45,8 +45,8 @@ CREATE TABLE Orders (
     UserId INT NOT NULL,
     OrderDate DATETIME2 NOT NULL DEFAULT GETDATE(),
     TotalAmount DECIMAL(18,2) NOT NULL,
-    Status NVARCHAR(20) NOT NULL,
-    ShippingAddress NVARCHAR(500),
+    Status NVARCHAR(50) NOT NULL,            -- 增加长度
+    ShippingAddress NVARCHAR(1000),          -- 增加长度以支持完整地址
     ShippedDate DATETIME2 NULL,
     DeliveredDate DATETIME2 NULL,
     Notes NVARCHAR(MAX),

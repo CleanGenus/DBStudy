@@ -3,6 +3,7 @@ using Microsoft.Data.SqlClient;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using System.Collections.Generic;
 
 namespace DBOptimizationStudy.Services
 {
@@ -129,6 +130,127 @@ namespace DBOptimizationStudy.Services
             {
                 _logger.LogError(ex, $"获取表 {tableName} 记录数失败");
                 return 0;
+            }
+        }
+
+        /// <summary>
+        /// 执行查询并返回结果集
+        /// </summary>
+        public async Task<List<Dictionary<string, object>>> ExecuteQueryAsync(string query, Dictionary<string, object>? parameters = null)
+        {
+            var results = new List<Dictionary<string, object>>();
+            
+            try
+            {
+                using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync();
+
+                using var command = new SqlCommand(query, connection);
+                command.CommandTimeout = 300;
+
+                if (parameters != null)
+                {
+                    foreach (var param in parameters)
+                    {
+                        command.Parameters.AddWithValue(param.Key, param.Value ?? DBNull.Value);
+                    }
+                }
+
+                using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var row = new Dictionary<string, object>();
+                    for (int i = 0; i < reader.FieldCount; i++)
+                    {
+                        row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                    }
+                    results.Add(row);
+                }
+
+                return results;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "执行查询失败: {Query}", query);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 执行非查询命令
+        /// </summary>
+        public async Task<int> ExecuteNonQueryAsync(string query, Dictionary<string, object>? parameters = null)
+        {
+            try
+            {
+                using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync();
+
+                using var command = new SqlCommand(query, connection);
+                command.CommandTimeout = 300;
+
+                if (parameters != null)
+                {
+                    foreach (var param in parameters)
+                    {
+                        command.Parameters.AddWithValue(param.Key, param.Value ?? DBNull.Value);
+                    }
+                }
+
+                return await command.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "执行非查询命令失败: {Query}", query);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 执行标量查询
+        /// </summary>
+        public async Task<T> ExecuteScalarAsync<T>(string query, Dictionary<string, object>? parameters = null)
+        {
+            try
+            {
+                using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync();
+
+                using var command = new SqlCommand(query, connection);
+                command.CommandTimeout = 300;
+
+                if (parameters != null)
+                {
+                    foreach (var param in parameters)
+                    {
+                        command.Parameters.AddWithValue(param.Key, param.Value ?? DBNull.Value);
+                    }
+                }
+
+                var result = await command.ExecuteScalarAsync();
+                if (result == null || result == DBNull.Value)
+                {
+                    return default(T);
+                }
+
+                return (T)Convert.ChangeType(result, typeof(T));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "执行标量查询失败: {Query}", query);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 获取数据库名称
+        /// </summary>
+        public string DatabaseName
+        {
+            get
+            {
+                var builder = new SqlConnectionStringBuilder(_connectionString);
+                return builder.InitialCatalog;
             }
         }
     }
