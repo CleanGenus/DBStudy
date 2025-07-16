@@ -6,7 +6,8 @@
 			"type": "shell",
 			"command": "dotnet",
 			"args": [
-				"build"
+				"build",
+				"${workspaceFolder}/DBOptimizationStudy/DBOptimizationStudy.csproj"
 			],
 			"group": "build",
 			"problemMatcher": [

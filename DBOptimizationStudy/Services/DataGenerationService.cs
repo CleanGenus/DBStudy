@@ -70,13 +70,13 @@ namespace DBOptimizationStudy.Services
                 catch (SqlException ex)
                 {
                     _logger.LogError(ex, $"插入部门数据失败: Name={department.Name}");
-                    
+
                     if (ex.Number == 8152)
                     {
                         _logger.LogError("部门数据截断错误");
                         _logger.LogError($"部门数据: Name长度={department.Name?.Length}, Description长度={department.Description?.Length}");
                     }
-                    
+
                     continue;
                 }
                 catch (Exception ex)
@@ -108,7 +108,7 @@ namespace DBOptimizationStudy.Services
             var userFaker = new Faker<User>()
                 .RuleFor(u => u.FirstName, f => TruncateString(f.Name.FirstName(), 90)) // 留有缓冲
                 .RuleFor(u => u.LastName, f => TruncateString(f.Name.LastName(), 90))
-                .RuleFor(u => u.Email, f => 
+                .RuleFor(u => u.Email, f =>
                 {
                     // 生成更短的邮箱地址，避免过长
                     var firstName = TruncateString(f.Name.FirstName(), 15);
@@ -137,9 +137,9 @@ namespace DBOptimizationStudy.Services
                 var batchCount = Math.Min(_batchSize, count - i);
                 var users = userFaker.Generate(batchCount);
 
-                await InsertUsersBatchAsync(connection, users);
+                await InsertUsersBulkCopyAsync(connection, users);
 
-                if ((i + batchCount) % 50000 == 0)
+                if ((i + batchCount) % 100000 == 0)
                 {
                     _logger.LogInformation($"已生成 {i + batchCount} 条用户数据...");
                 }
@@ -184,7 +184,7 @@ namespace DBOptimizationStudy.Services
                 var batchCount = Math.Min(_batchSize, count - i);
                 var orders = orderFaker.Generate(batchCount);
 
-                await InsertOrdersBatchAsync(connection, orders);
+                await InsertOrdersBulkCopyAsync(connection, orders);
 
                 if ((i + batchCount) % 100000 == 0)
                 {
@@ -245,7 +245,7 @@ namespace DBOptimizationStudy.Services
                 try
                 {
                     using var command = new SqlCommand(query, connection);
-                    
+
                     // 数据验证和截断处理
                     command.Parameters.AddWithValue("@FirstName", TruncateString(user.FirstName, 100));
                     command.Parameters.AddWithValue("@LastName", TruncateString(user.LastName, 100));
@@ -268,14 +268,14 @@ namespace DBOptimizationStudy.Services
                 catch (SqlException ex)
                 {
                     _logger.LogError(ex, $"插入用户数据失败: FirstName={user.FirstName}, LastName={user.LastName}, Email={user.Email}");
-                    
+
                     // 记录详细的错误信息
                     if (ex.Number == 8152) // String or binary data would be truncated
                     {
                         _logger.LogError("数据截断错误 - 字段长度超出限制");
                         _logger.LogError($"用户数据: FirstName长度={user.FirstName?.Length}, LastName长度={user.LastName?.Length}, Email长度={user.Email?.Length}");
                     }
-                    
+
                     // 继续处理其他记录，不中断整个批次
                     continue;
                 }
@@ -312,13 +312,13 @@ namespace DBOptimizationStudy.Services
                 catch (SqlException ex)
                 {
                     _logger.LogError(ex, $"插入订单数据失败: OrderId={order.Id}, UserId={order.UserId}");
-                    
+
                     if (ex.Number == 8152)
                     {
                         _logger.LogError("订单数据截断错误");
                         _logger.LogError($"订单数据: Status长度={order.Status?.Length}, Address长度={order.ShippingAddress?.Length}");
                     }
-                    
+
                     continue;
                 }
                 catch (Exception ex)
@@ -336,8 +336,155 @@ namespace DBOptimizationStudy.Services
         {
             if (string.IsNullOrEmpty(input))
                 return input ?? string.Empty;
-            
+
             return input.Length <= maxLength ? input : input.Substring(0, maxLength);
         }
+
+        /// <summary>
+        /// 使用 SqlBulkCopy 进行批量插入（最优性能）
+        /// </summary>
+        private async Task InsertUsersBulkCopyAsync(SqlConnection connection, List<User> users)
+        {
+            try
+            {
+                // 创建 DataTable
+                var dataTable = new System.Data.DataTable();
+                dataTable.Columns.Add("FirstName", typeof(string));
+                dataTable.Columns.Add("LastName", typeof(string));
+                dataTable.Columns.Add("Email", typeof(string));
+                dataTable.Columns.Add("PhoneNumber", typeof(string));
+                dataTable.Columns.Add("DateOfBirth", typeof(DateTime));
+                dataTable.Columns.Add("CreatedDate", typeof(DateTime));
+                dataTable.Columns.Add("LastLoginDate", typeof(DateTime));
+                dataTable.Columns.Add("City", typeof(string));
+                dataTable.Columns.Add("State", typeof(string));
+                dataTable.Columns.Add("Country", typeof(string));
+                dataTable.Columns.Add("ZipCode", typeof(string));
+                dataTable.Columns.Add("Salary", typeof(decimal));
+                dataTable.Columns.Add("DepartmentId", typeof(int));
+                dataTable.Columns.Add("IsActive", typeof(bool));
+                dataTable.Columns.Add("Notes", typeof(string));
+
+                // 填充数据
+                foreach (var user in users)
+                {
+                    var row = dataTable.NewRow();
+                    row["FirstName"] = TruncateString(user.FirstName, 100);
+                    row["LastName"] = TruncateString(user.LastName, 100);
+                    row["Email"] = TruncateString(user.Email, 255);
+                    row["PhoneNumber"] = TruncateString(user.PhoneNumber, 50);
+                    row["DateOfBirth"] = user.DateOfBirth;
+                    row["CreatedDate"] = user.CreatedDate;
+                    row["LastLoginDate"] = user.LastLoginDate ?? (object)DBNull.Value;
+                    row["City"] = TruncateString(user.City, 100);
+                    row["State"] = TruncateString(user.State, 100);
+                    row["Country"] = TruncateString(user.Country, 100);
+                    row["ZipCode"] = TruncateString(user.ZipCode, 20);
+                    row["Salary"] = user.Salary;
+                    row["DepartmentId"] = user.DepartmentId;
+                    row["IsActive"] = user.IsActive;
+                    row["Notes"] = TruncateString(user.Notes, 4000);
+
+                    dataTable.Rows.Add(row);
+                }
+
+                // 使用 SqlBulkCopy
+                using var bulkCopy = new SqlBulkCopy(connection)
+                {
+                    DestinationTableName = "Users",
+                    BatchSize = _batchSize,
+                    BulkCopyTimeout = 300 // 5分钟超时
+                };
+
+                // 映射列
+                bulkCopy.ColumnMappings.Add("FirstName", "FirstName");
+                bulkCopy.ColumnMappings.Add("LastName", "LastName");
+                bulkCopy.ColumnMappings.Add("Email", "Email");
+                bulkCopy.ColumnMappings.Add("PhoneNumber", "PhoneNumber");
+                bulkCopy.ColumnMappings.Add("DateOfBirth", "DateOfBirth");
+                bulkCopy.ColumnMappings.Add("CreatedDate", "CreatedDate");
+                bulkCopy.ColumnMappings.Add("LastLoginDate", "LastLoginDate");
+                bulkCopy.ColumnMappings.Add("City", "City");
+                bulkCopy.ColumnMappings.Add("State", "State");
+                bulkCopy.ColumnMappings.Add("Country", "Country");
+                bulkCopy.ColumnMappings.Add("ZipCode", "ZipCode");
+                bulkCopy.ColumnMappings.Add("Salary", "Salary");
+                bulkCopy.ColumnMappings.Add("DepartmentId", "DepartmentId");
+                bulkCopy.ColumnMappings.Add("IsActive", "IsActive");
+                bulkCopy.ColumnMappings.Add("Notes", "Notes");
+
+                await bulkCopy.WriteToServerAsync(dataTable);
+
+                _logger.LogInformation($"成功批量插入 {users.Count} 条用户数据");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"批量插入用户数据失败，记录数: {users.Count}");
+                throw;
+            }
+        }
+        /// <summary>
+        /// 使用 SqlBulkCopy 进行订单批量插入（最优性能）
+        /// </summary>
+        private async Task InsertOrdersBulkCopyAsync(SqlConnection connection, List<Order> orders)
+        {
+            try
+            {
+                // 创建 DataTable
+                var dataTable = new System.Data.DataTable();
+                dataTable.Columns.Add("UserId", typeof(int));
+                dataTable.Columns.Add("OrderDate", typeof(DateTime));
+                dataTable.Columns.Add("TotalAmount", typeof(decimal));
+                dataTable.Columns.Add("Status", typeof(string));
+                dataTable.Columns.Add("ShippingAddress", typeof(string));
+                dataTable.Columns.Add("ShippedDate", typeof(DateTime));
+                dataTable.Columns.Add("DeliveredDate", typeof(DateTime));
+                dataTable.Columns.Add("Notes", typeof(string));
+
+                // 填充数据
+                foreach (var order in orders)
+                {
+                    var row = dataTable.NewRow();
+                    row["UserId"] = order.UserId;
+                    row["OrderDate"] = order.OrderDate;
+                    row["TotalAmount"] = order.TotalAmount;
+                    row["Status"] = TruncateString(order.Status, 50);
+                    row["ShippingAddress"] = TruncateString(order.ShippingAddress, 1000);
+                    row["ShippedDate"] = order.ShippedDate ?? (object)DBNull.Value;
+                    row["DeliveredDate"] = order.DeliveredDate ?? (object)DBNull.Value;
+                    row["Notes"] = TruncateString(order.Notes, 4000);
+
+                    dataTable.Rows.Add(row);
+                }
+
+                // 使用 SqlBulkCopy
+                using var bulkCopy = new SqlBulkCopy(connection)
+                {
+                    DestinationTableName = "Orders",
+                    BatchSize = _batchSize,
+                    BulkCopyTimeout = 300 // 5分钟超时
+                };
+
+                // 映射列
+                bulkCopy.ColumnMappings.Add("UserId", "UserId");
+                bulkCopy.ColumnMappings.Add("OrderDate", "OrderDate");
+                bulkCopy.ColumnMappings.Add("TotalAmount", "TotalAmount");
+                bulkCopy.ColumnMappings.Add("Status", "Status");
+                bulkCopy.ColumnMappings.Add("ShippingAddress", "ShippingAddress");
+                bulkCopy.ColumnMappings.Add("ShippedDate", "ShippedDate");
+                bulkCopy.ColumnMappings.Add("DeliveredDate", "DeliveredDate");
+                bulkCopy.ColumnMappings.Add("Notes", "Notes");
+
+                await bulkCopy.WriteToServerAsync(dataTable);
+
+                _logger.LogInformation($"成功批量插入 {orders.Count} 条订单数据");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"批量插入订单数据失败，记录数: {orders.Count}");
+                throw;
+            }
+        }
     }
+
 }

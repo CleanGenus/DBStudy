@@ -115,7 +115,7 @@ namespace DBOptimizationStudy.Services
         /// <summary>
         /// 获取表记录数
         /// </summary>
-        public async Task<long> GetTableRowCountAsync(string tableName)
+        public async Task<int> GetTableRowCountAsync(string tableName)
         {
             try
             {
@@ -124,7 +124,7 @@ namespace DBOptimizationStudy.Services
 
                 var query = $"SELECT COUNT(*) FROM {tableName}";
                 using var command = new SqlCommand(query, connection);
-                return (long)await command.ExecuteScalarAsync();
+                return Convert.ToInt32(await command.ExecuteScalarAsync());
             }
             catch (Exception ex)
             {

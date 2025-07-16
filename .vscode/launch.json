@@ -1,0 +1,15 @@
+{
+  "configurations": [
+    {
+      "type": "coreclr",
+      "request": "launch",
+      "name": "Launch .NET Core App",
+      "program": "${workspaceFolder}/DBOptimizationStudy/bin/Debug/net8.0/DBOptimizationStudy.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/DBOptimizationStudy",
+      "console": "integratedTerminal",
+      "stopAtEntry": false,
+      "preLaunchTask": "build"
+    }
+  ]
+}

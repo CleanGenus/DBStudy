@@ -110,23 +110,38 @@ namespace DBOptimizationStudy.Experiments
             _logger.LogInformation("学习目标：了解大数据量对性能的影响，学习数据生成技术");
             _logger.LogInformation("");
 
-            // 1. 生成部门数据
-            _logger.LogInformation("2.1 生成部门数据...");
-            await _dataGenerationService.GenerateDepartmentsAsync(50);
-
-            // 2. 生成用户数据
-            _logger.LogInformation("2.2 生成用户数据（这可能需要几分钟）...");
-            await _dataGenerationService.GenerateUsersAsync(1000000);
-
-            // 3. 生成订单数据
-            _logger.LogInformation("2.3 生成订单数据（这可能需要更长时间）...");
-            await _dataGenerationService.GenerateOrdersAsync(2000000);
-
-            // 4. 验证数据量
-            _logger.LogInformation("2.4 验证生成的数据量...");
             var userCount = await _databaseService.GetTableRowCountAsync("Users");
             var orderCount = await _databaseService.GetTableRowCountAsync("Orders");
             var departmentCount = await _databaseService.GetTableRowCountAsync("Departments");
+            _logger.LogInformation($"数据统计：部门 {departmentCount} 条，用户 {userCount} 条，订单 {orderCount} 条");
+            
+            // 1. 生成部门数据
+            _logger.LogInformation("2.1 生成部门数据...");
+            if (departmentCount < 50)
+            {
+                await _dataGenerationService.GenerateDepartmentsAsync(50-userCount);
+            }
+            
+
+            // 2. 生成用户数据
+            _logger.LogInformation("2.2 生成用户数据（这可能需要几分钟）...");
+            if(userCount < 1000000)
+            {
+                await _dataGenerationService.GenerateUsersAsync(1000000 - userCount);
+            }
+
+            // 3. 生成订单数据
+            _logger.LogInformation("2.3 生成订单数据（这可能需要更长时间）...");
+            if(orderCount < 2000000)
+            {
+                await _dataGenerationService.GenerateOrdersAsync(2000000 - orderCount);
+            }
+
+            // 4. 验证数据量
+            _logger.LogInformation("2.4 验证生成的数据量...");
+            userCount = await _databaseService.GetTableRowCountAsync("Users");
+            orderCount = await _databaseService.GetTableRowCountAsync("Orders");
+            departmentCount = await _databaseService.GetTableRowCountAsync("Departments");
 
             _logger.LogInformation($"数据统计：部门 {departmentCount} 条，用户 {userCount} 条，订单 {orderCount} 条");
             _logger.LogInformation("✅ 第2课完成！测试数据生成完毕");
